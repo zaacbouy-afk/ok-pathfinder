@@ -234,9 +234,10 @@ public class PathfinderAction {
         // Check if the path is currently going upward
         boolean climbing = currentNode < path.size()
                 && path.get(currentNode).getY() > player.getY() + 0.2;
+        boolean airborne = !player.onGround();
 
         // Scan ahead and skip to the furthest node we've reached
-        // Works for both flat and climbing — handles speed boosts, ice, jump boost
+        // Works for flat, climbing, and airborne states
         int scanLimit = Math.min(path.size(), currentNode + 15);
         int furthestReached = -1;
         for (int i = currentNode; i < scanLimit; i++) {
@@ -246,7 +247,12 @@ public class PathfinderAction {
             double ndy = node.getY() - player.getY();
             double horizDist = Math.sqrt(ndx * ndx + ndz * ndz);
 
-            if (climbing) {
+            if (airborne) {
+                // Airborne: permissive scan — skip any node the player is above/at and near
+                if (horizDist < REACH_DISTANCE && ndy <= 1.0) {
+                    furthestReached = i;
+                }
+            } else if (climbing) {
                 // Climbing: player must be at or above the node and horizontally close
                 if (horizDist < REACH_DISTANCE && ndy <= 0.5) {
                     furthestReached = i;
