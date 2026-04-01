@@ -280,11 +280,11 @@ public class PathfinderAction {
         BlockPos target = path.get(currentNode);
         double targetY = target.getY();
 
-        // Aim a few nodes ahead for smoother movement
-        // Allows up to 2 blocks of Y difference for diagonal/slope aiming
+        // Aim ahead for diagonal-to-diagonal movement
+        // Looks far ahead and cuts straight lines through falls/climbs
+        // Only stops on direction reversals or blocked line of sight
         int aimNode = currentNode;
-        for (int i = currentNode + 1; i < Math.min(path.size(), currentNode + 5); i++) {
-            if (Math.abs(path.get(i).getY() - targetY) > 2) break;
+        for (int i = currentNode + 1; i < Math.min(path.size(), currentNode + 10); i++) {
 
             // Check the path doesn't reverse direction (sign of going around a wall)
             BlockPos prev = path.get(i - 1);
