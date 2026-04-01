@@ -7,7 +7,9 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.SlabBlock;
 import net.minecraft.world.level.block.StairBlock;
+import net.minecraft.world.level.block.state.properties.SlabType;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 
 import java.util.HashSet;
@@ -125,11 +127,19 @@ public class PathfinderAction {
     private static void repath(LocalPlayer player) {
         if (destination == null || Minecraft.getInstance().level == null) return;
 
-        // Check if we've moved significantly since last repath — if so, reset counter
-        double dxr = player.getX() - repathOriginX;
-        double dyr = player.getY() - repathOriginY;
-        double dzr = player.getZ() - repathOriginZ;
-        if (Math.sqrt(dxr * dxr + dyr * dyr + dzr * dzr) > 2.0) {
+        // Reset repath counter only if we've made meaningful progress toward the destination
+        // (plain movement distance lets wall-oscillation reset the counter forever)
+        double prevDistToDest = Math.sqrt(
+                Math.pow(repathOriginX - destination.getX(), 2) +
+                Math.pow(repathOriginY - destination.getY(), 2) +
+                Math.pow(repathOriginZ - destination.getZ(), 2)
+        );
+        double currDistToDest = Math.sqrt(
+                Math.pow(player.getX() - destination.getX(), 2) +
+                Math.pow(player.getY() - destination.getY(), 2) +
+                Math.pow(player.getZ() - destination.getZ(), 2)
+        );
+        if (prevDistToDest - currDistToDest > 3.0) {
             repathAttempts = 0;
         }
 
@@ -143,7 +153,12 @@ public class PathfinderAction {
         repathOriginY = player.getY();
         repathOriginZ = player.getZ();
 
-        // Blacklist the player's actual nearest block position (rounded, not floored)
+        // Blacklist the actual node we're stuck trying to reach — this is what causes
+        // wall-hugging loops where repath keeps routing through the same side nodes
+        if (path != null && currentNode < path.size()) {
+            blacklist.add(path.get(currentNode));
+        }
+        // Also blacklist the player's rounded position
         BlockPos stuckPos = new BlockPos(
                 (int) Math.round(player.getX()),
                 (int) Math.floor(player.getY()),
@@ -409,9 +424,15 @@ public class PathfinderAction {
 
             // Jump if current target node is a full block above player
             // For stairs: skip the jump only when approaching from the front (walkable) side
-            if (targetY > player.getY() + 0.8) {
-                Level level = mc.level;
-                BlockPos belowTarget = new BlockPos(target.getX(), target.getY() - 1, target.getZ());
+            // For slabs: the actual walkable surface is 0.5 below the node Y — no jump needed
+            Level level = mc.level;
+            BlockPos belowTarget = new BlockPos(target.getX(), target.getY() - 1, target.getZ());
+            double effectiveSurfaceY = targetY;
+            if (level != null && level.getBlockState(belowTarget).getBlock() instanceof SlabBlock
+                    && level.getBlockState(belowTarget).getValue(SlabBlock.TYPE) == SlabType.BOTTOM) {
+                effectiveSurfaceY = targetY - 0.5;
+            }
+            if (effectiveSurfaceY > player.getY() + 0.8) {
                 boolean shouldJump = true;
                 if (level != null && level.getBlockState(belowTarget).getBlock() instanceof StairBlock) {
                     Direction stairFacing = level.getBlockState(belowTarget).getValue(StairBlock.FACING);
