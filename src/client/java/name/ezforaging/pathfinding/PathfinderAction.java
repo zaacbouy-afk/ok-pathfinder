@@ -4,11 +4,15 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.StairBlock;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class PathfinderAction {
     private static List<BlockPos> path = null;
@@ -28,7 +32,11 @@ public class PathfinderAction {
     private static final double STUCK_THRESHOLD = 1.0;  // must move at least 1 block per check
     private static final int STUCK_REPATH_TICKS = 20;   // repath after ~1 second stuck
     private static int tickCounter = 0;
+    private static int repathAttempts = 0;
+    private static final int MAX_REPATH_ATTEMPTS = 3;
+    private static double repathOriginX, repathOriginY, repathOriginZ;
     private static final float FORWARD_ANGLE_THRESHOLD = 50f; // don't walk forward if facing > 50° off target
+    private static final Set<BlockPos> blacklist = new HashSet<>();
 
     // Target angles computed in tick(), interpolated every frame in renderTick()
     private static float targetYaw = 0f;
@@ -49,6 +57,8 @@ public class PathfinderAction {
         currentNode = 0;
         stuckTicks = 0;
         tickCounter = 0;
+        repathAttempts = 0;
+        blacklist.clear();
         if (newPath != null && !newPath.isEmpty()) {
             destination = newPath.get(newPath.size() - 1);
         }
@@ -67,6 +77,8 @@ public class PathfinderAction {
         destination = null;
         stuckTicks = 0;
         tickCounter = 0;
+        repathAttempts = 0;
+        blacklist.clear();
         releaseAllKeys();
     }
 
@@ -113,9 +125,41 @@ public class PathfinderAction {
     private static void repath(LocalPlayer player) {
         if (destination == null || Minecraft.getInstance().level == null) return;
 
+        // Check if we've moved significantly since last repath — if so, reset counter
+        double dxr = player.getX() - repathOriginX;
+        double dyr = player.getY() - repathOriginY;
+        double dzr = player.getZ() - repathOriginZ;
+        if (Math.sqrt(dxr * dxr + dyr * dyr + dzr * dzr) > 2.0) {
+            repathAttempts = 0;
+        }
+
+        repathAttempts++;
+        if (repathAttempts > MAX_REPATH_ATTEMPTS) {
+            stopWithReason(player, "stuck, unable to repath");
+            return;
+        }
+
+        repathOriginX = player.getX();
+        repathOriginY = player.getY();
+        repathOriginZ = player.getZ();
+
+        // Blacklist the player's actual nearest block position (rounded, not floored)
+        BlockPos stuckPos = new BlockPos(
+                (int) Math.round(player.getX()),
+                (int) Math.floor(player.getY()),
+                (int) Math.round(player.getZ())
+        );
+        blacklist.add(stuckPos);
+        player.displayClientMessage(
+                Component.empty().append(Component.literal("[ezForaging] ").withStyle(style -> style.withBold(true).withColor(ChatFormatting.DARK_GREEN))).append("Blacklisted " + stuckPos.getX() + " " + stuckPos.getY() + " " + stuckPos.getZ()), false
+        );
         BlockPos playerPos = player.blockPosition();
+
+        // On the last attempt, allow a much larger search so the
+        // pathfinder can find a longer detour that actually reaches the goal.
+        int iterations = (repathAttempts == MAX_REPATH_ATTEMPTS) ? 200000 : 50000;
         List<BlockPos> newPath = EzForagingPathfinder.findPath(
-                Minecraft.getInstance().level, playerPos, destination, 50000
+                Minecraft.getInstance().level, playerPos, destination, iterations, blacklist
         );
 
         if (!newPath.isEmpty()) {
@@ -125,6 +169,21 @@ public class PathfinderAction {
             lastX = player.getX();
             lastY = player.getY();
             lastZ = player.getZ();
+
+            // Skip nodes the player is already standing on
+            for (int i = 0; i < newPath.size(); i++) {
+                BlockPos node = newPath.get(i);
+                double ndx = node.getX() + 0.5 - player.getX();
+                double ndz = node.getZ() + 0.5 - player.getZ();
+                double ndy = node.getY() - player.getY();
+                double horizDist = Math.sqrt(ndx * ndx + ndz * ndz);
+                if (horizDist < REACH_DISTANCE && Math.abs(ndy) < 1.5) {
+                    currentNode = i + 1;
+                } else {
+                    break;
+                }
+            }
+
             PathRenderer.setPath(newPath);
             player.displayClientMessage(
                     Component.empty().append(Component.literal("[ezForaging] ").withStyle(style -> style.withBold(true).withColor(ChatFormatting.DARK_GREEN))).append("Repathing " + newPath.size() + " blocks"), false
@@ -247,6 +306,9 @@ public class PathfinderAction {
             double ndy = node.getY() - player.getY();
             double horizDist = Math.sqrt(ndx * ndx + ndz * ndz);
 
+            // Don't count a node as reached if there's a wall between us and it
+            if (!hasLineOfSight(player, node)) continue;
+
             if (airborne) {
                 // Airborne: permissive scan — skip any node the player is above/at and near
                 if (horizDist < REACH_DISTANCE && ndy <= 1.0) {
@@ -270,9 +332,11 @@ public class PathfinderAction {
         }
 
         // Skip nodes that are behind the player — if the next node is closer, we've passed the current one
-        while (currentNode + 1 < path.size()) {
+        // Only skip if we have line of sight to the next node (don't skip through walls)
+        while (currentNode + 1 < path.size() && currentNode+1 != path.size()-1) {
             BlockPos curr = path.get(currentNode);
             BlockPos next = path.get(currentNode + 1);
+            if (!hasLineOfSight(player, next)) break;
             double distCurr = player.distanceToSqr(curr.getX() + 0.5, curr.getY(), curr.getZ() + 0.5);
             double distNext = player.distanceToSqr(next.getX() + 0.5, next.getY(), next.getZ() + 0.5);
             if (distNext < distCurr) {
@@ -343,9 +407,31 @@ public class PathfinderAction {
             // Walk forward
             mc.options.keyUp.setDown(true);
 
-            // Jump if current target node is a full block above player (not slabs)
+            // Jump if current target node is a full block above player
+            // For stairs: skip the jump only when approaching from the front (walkable) side
             if (targetY > player.getY() + 0.8) {
-                mc.options.keyJump.setDown(true);
+                Level level = mc.level;
+                BlockPos belowTarget = new BlockPos(target.getX(), target.getY() - 1, target.getZ());
+                boolean shouldJump = true;
+                if (level != null && level.getBlockState(belowTarget).getBlock() instanceof StairBlock) {
+                    Direction stairFacing = level.getBlockState(belowTarget).getValue(StairBlock.FACING);
+                    double adx = target.getX() + 0.5 - player.getX();
+                    double adz = target.getZ() + 0.5 - player.getZ();
+                    Direction approachDir;
+                    if (Math.abs(adx) > Math.abs(adz)) {
+                        approachDir = adx > 0 ? Direction.EAST : Direction.WEST;
+                    } else {
+                        approachDir = adz > 0 ? Direction.SOUTH : Direction.NORTH;
+                    }
+                    // FACING points toward the back of the stair;
+                    // approaching in that direction means we're coming from the front (walkable) side
+                    if (approachDir == stairFacing) {
+                        shouldJump = false;
+                    }
+                }
+                if (shouldJump) {
+                    mc.options.keyJump.setDown(true);
+                }
             }
 
             // Sprint on flat stretches with room ahead
