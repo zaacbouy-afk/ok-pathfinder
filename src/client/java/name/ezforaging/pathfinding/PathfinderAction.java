@@ -330,8 +330,8 @@ public class PathfinderAction {
             // Walk forward
             mc.options.keyUp.setDown(true);
 
-            // Jump if current target node is above player
-            if (targetY > player.getY() + 0.5) {
+            // Jump if current target node is a full block above player (not slabs)
+            if (targetY > player.getY() + 0.8) {
                 mc.options.keyJump.setDown(true);
             }
 

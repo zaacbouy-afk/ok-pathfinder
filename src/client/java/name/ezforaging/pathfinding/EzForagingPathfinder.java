@@ -49,6 +49,7 @@ public class EzForagingPathfinder {
                 double moveCost = yDiff > 0 ? 1.0 + (yDiff * 0.5) : 1.0;
                 moveCost += wallProximityCost(level, neighbour);
                 moveCost += waterCost(level, neighbour);
+                moveCost += edgeProximityCost(level, neighbour);
                 double newGCost = current.gCost + moveCost;
 
                 // Skip if we already found a better or equal path to this neighbour
@@ -109,6 +110,37 @@ public class EzForagingPathfinder {
             }
         }
         return 0.0;
+    }
+
+    private static final int EDGE_CLEARANCE = 3;
+    private static final double EDGE_PENALTY = 3.0;
+    private static final int DROP_THRESHOLD = 3; // a drop of 3+ blocks counts as a dangerous edge
+
+    private static double edgeProximityCost(Level level, BlockPos pos) {
+        double highestPenalty = 0.0;
+        int y = pos.getY();
+        for (int dx = -EDGE_CLEARANCE; dx <= EDGE_CLEARANCE; dx++) {
+            for (int dz = -EDGE_CLEARANCE; dz <= EDGE_CLEARANCE; dz++) {
+                if (dx == 0 && dz == 0) continue;
+                double dist = Math.sqrt(dx * dx + dz * dz);
+                if (dist > EDGE_CLEARANCE) continue;
+
+                // Check if there's a significant drop at this nearby position
+                BlockPos check = new BlockPos(pos.getX() + dx, y, pos.getZ() + dz);
+                int drop = 0;
+                for (int d = 0; d < DROP_THRESHOLD + 1; d++) {
+                    if (level.getBlockState(check.below(d)).isSolid()) break;
+                    drop++;
+                }
+                if (drop >= DROP_THRESHOLD) {
+                    double penalty = EDGE_PENALTY * (1.0 - dist / (EDGE_CLEARANCE + 1));
+                    if (penalty > highestPenalty) {
+                        highestPenalty = penalty;
+                    }
+                }
+            }
+        }
+        return highestPenalty;
     }
 
     private static double heuristic(BlockPos a, BlockPos b) {
