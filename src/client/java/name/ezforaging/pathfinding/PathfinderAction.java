@@ -315,6 +315,8 @@ public class PathfinderAction {
         int scanLimit = Math.min(path.size(), currentNode + 15);
         int furthestReached = -1;
         for (int i = currentNode; i < scanLimit; i++) {
+            // Last node must be stood on — don't count it as reached via proximity
+            if (i == path.size() - 1) continue;
             BlockPos node = path.get(i);
             double ndx = node.getX() + 0.5 - player.getX();
             double ndz = node.getZ() + 0.5 - player.getZ();
@@ -358,6 +360,17 @@ public class PathfinderAction {
                 currentNode++;
             } else {
                 break;
+            }
+        }
+
+        // Last node requires the player to be standing on its block column
+        if (currentNode == path.size() - 1) {
+            BlockPos lastNode = path.get(currentNode);
+            BlockPos playerBlock = player.blockPosition();
+            if (playerBlock.getX() == lastNode.getX()
+                    && playerBlock.getZ() == lastNode.getZ()
+                    && Math.abs(lastNode.getY() - player.getY()) < 1.5) {
+                currentNode++;
             }
         }
 
