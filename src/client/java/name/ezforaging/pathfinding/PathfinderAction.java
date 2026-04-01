@@ -306,7 +306,13 @@ public class PathfinderAction {
 
         // Compute target angles — actual rotation is applied in renderTick()
         targetYaw = (float) (Math.atan2(-dx, dz) * (180.0 / Math.PI));
-        targetPitch = (float) (Math.atan2(-dy, Math.sqrt(dx * dx + dz * dz)) * (180.0 / Math.PI));
+
+        // Keep pitch neutral while airborne so head doesn't snap down to nodes below
+        if (!player.onGround()) {
+            targetPitch = 0f;
+        } else {
+            targetPitch = (float) (Math.atan2(-dy, Math.sqrt(dx * dx + dz * dz)) * (180.0 / Math.PI));
+        }
 
         // Only walk forward if we're roughly facing the target direction
         // This prevents sliding along walls while rotating
