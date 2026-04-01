@@ -179,8 +179,21 @@ public class PathfinderAction {
         player.setXRot(newPitch);
     }
 
+    private static void stopWithReason(LocalPlayer player, String reason) {
+        player.displayClientMessage(
+                Component.empty().append(Component.literal("[ezForaging] ").withStyle(style -> style.withBold(true).withColor(ChatFormatting.DARK_GREEN))).append("Script stopped (" + reason + ")"), false
+        );
+        stop();
+    }
+
     private static void tick(LocalPlayer player) {
         Minecraft mc = Minecraft.getInstance();
+
+        // Stop if a screen is opened (inventory, chat, etc.)
+        if (mc.screen != null) {
+            stopWithReason(player, "screen opened");
+            return;
+        }
 
         if (currentNode >= path.size()) {
             player.displayClientMessage(
@@ -261,32 +274,29 @@ public class PathfinderAction {
         BlockPos target = path.get(currentNode);
         double targetY = target.getY();
 
-        // Diagonal-to-diagonal: aim a few nodes ahead on same Y,
-        // but stop if the path reverses direction or line of sight is blocked
-        // Disabled while climbing — aim directly at the next node
+        // Aim a few nodes ahead for smoother movement
+        // Allows up to 2 blocks of Y difference for diagonal/slope aiming
         int aimNode = currentNode;
-        if (!climbing) {
-            for (int i = currentNode + 1; i < Math.min(path.size(), currentNode + 5); i++) {
-                if (path.get(i).getY() != targetY) break;
+        for (int i = currentNode + 1; i < Math.min(path.size(), currentNode + 5); i++) {
+            if (Math.abs(path.get(i).getY() - targetY) > 2) break;
 
-                // Check the path doesn't reverse direction (sign of going around a wall)
-                BlockPos prev = path.get(i - 1);
-                BlockPos curr = path.get(i);
-                if (i >= 2) {
-                    BlockPos beforePrev = path.get(i - 2);
-                    int prevDirX = prev.getX() - beforePrev.getX();
-                    int prevDirZ = prev.getZ() - beforePrev.getZ();
-                    int currDirX = curr.getX() - prev.getX();
-                    int currDirZ = curr.getZ() - prev.getZ();
-                    // Dot product < 0 means direction reversed (U-turn around obstacle)
-                    if (prevDirX * currDirX + prevDirZ * currDirZ < 0) break;
-                }
-
-                // Check line of sight — don't aim through walls
-                if (!hasLineOfSight(player, path.get(i))) break;
-
-                aimNode = i;
+            // Check the path doesn't reverse direction (sign of going around a wall)
+            BlockPos prev = path.get(i - 1);
+            BlockPos curr = path.get(i);
+            if (i >= 2) {
+                BlockPos beforePrev = path.get(i - 2);
+                int prevDirX = prev.getX() - beforePrev.getX();
+                int prevDirZ = prev.getZ() - beforePrev.getZ();
+                int currDirX = curr.getX() - prev.getX();
+                int currDirZ = curr.getZ() - prev.getZ();
+                // Dot product < 0 means direction reversed (U-turn around obstacle)
+                if (prevDirX * currDirX + prevDirZ * currDirZ < 0) break;
             }
+
+            // Check line of sight — don't aim through walls
+            if (!hasLineOfSight(player, path.get(i))) break;
+
+            aimNode = i;
         }
 
         BlockPos aimTarget = path.get(aimNode);
