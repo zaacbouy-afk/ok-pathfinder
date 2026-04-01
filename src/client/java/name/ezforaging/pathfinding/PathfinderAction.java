@@ -269,6 +269,19 @@ public class PathfinderAction {
             currentNode = furthestReached + 1;
         }
 
+        // Skip nodes that are behind the player — if the next node is closer, we've passed the current one
+        while (currentNode + 1 < path.size()) {
+            BlockPos curr = path.get(currentNode);
+            BlockPos next = path.get(currentNode + 1);
+            double distCurr = player.distanceToSqr(curr.getX() + 0.5, curr.getY(), curr.getZ() + 0.5);
+            double distNext = player.distanceToSqr(next.getX() + 0.5, next.getY(), next.getZ() + 0.5);
+            if (distNext < distCurr) {
+                currentNode++;
+            } else {
+                break;
+            }
+        }
+
         if (currentNode >= path.size()) {
             player.displayClientMessage(
                     Component.empty().append(Component.literal("[ezForaging] ").withStyle(style -> style.withBold(true).withColor(ChatFormatting.DARK_GREEN))).append("Path complete"), false
