@@ -15,10 +15,10 @@ public class PathfinderAction {
     private static int currentNode = 0;
     public static boolean active = false;
     private static final double REACH_DISTANCE = 1.2;
-    private static final float SMOOTH_SPEED_MIN = 0.15f;
-    private static final float SMOOTH_SPEED_MAX = 0.4f;
-    private static final float MAX_YAW_PER_TICK = 15f;
-    private static final float MAX_PITCH_PER_TICK = 10f;
+    private static final float SMOOTH_SPEED_MIN = 0.1f;
+    private static final float SMOOTH_SPEED_MAX = 0.25f;
+    private static final float MAX_YAW_PER_FRAME = 5f;
+    private static final float MAX_PITCH_PER_FRAME = 3f;
 
     // Stuck detection & repathing
     private static BlockPos destination = null;
@@ -29,6 +29,12 @@ public class PathfinderAction {
     private static final int STUCK_REPATH_TICKS = 20;   // repath after ~1 second stuck
     private static int tickCounter = 0;
     private static final float FORWARD_ANGLE_THRESHOLD = 50f; // don't walk forward if facing > 50° off target
+
+    // Target angles computed in tick(), interpolated every frame in renderTick()
+    private static float targetYaw = 0f;
+    private static float targetPitch = 0f;
+    private static long lastRenderNano = 0;
+    private static final double TARGET_FRAME_NS = 1_000_000_000.0 / 60.0; // 60 ticks/sec baseline
 
     public static void register() {
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -82,23 +88,25 @@ public class PathfinderAction {
         mc.options.keySprint.setDown(false);
     }
 
-    private static float smoothYaw(float current, float target) {
+    private static float smoothYaw(float current, float target, float scale) {
         float diff = target - current;
         while (diff > 180) diff -= 360;
         while (diff < -180) diff += 360;
         float absDiff = Math.abs(diff);
         float speed = SMOOTH_SPEED_MIN + (SMOOTH_SPEED_MAX - SMOOTH_SPEED_MIN) * Math.min(absDiff / 90f, 1f);
-        float delta = diff * speed;
-        delta = Math.max(-MAX_YAW_PER_TICK, Math.min(MAX_YAW_PER_TICK, delta));
+        float delta = diff * speed * scale;
+        float maxYaw = MAX_YAW_PER_FRAME * scale;
+        delta = Math.max(-maxYaw, Math.min(maxYaw, delta));
         return current + delta;
     }
 
-    private static float smoothPitch(float current, float target) {
+    private static float smoothPitch(float current, float target, float scale) {
         float diff = target - current;
         float absDiff = Math.abs(diff);
         float speed = SMOOTH_SPEED_MIN + (SMOOTH_SPEED_MAX - SMOOTH_SPEED_MIN) * Math.min(absDiff / 45f, 1f);
-        float delta = diff * speed;
-        delta = Math.max(-MAX_PITCH_PER_TICK, Math.min(MAX_PITCH_PER_TICK, delta));
+        float delta = diff * speed * scale;
+        float maxPitch = MAX_PITCH_PER_FRAME * scale;
+        delta = Math.max(-maxPitch, Math.min(maxPitch, delta));
         return current + delta;
     }
 
@@ -155,6 +163,22 @@ public class PathfinderAction {
         return true;
     }
 
+    public static void renderTick(LocalPlayer player) {
+        long now = System.nanoTime();
+        long elapsed = now - lastRenderNano;
+        lastRenderNano = now;
+
+        // Scale smoothing so it behaves the same as 60 ticks/sec regardless of FPS
+        float scale = (float) (elapsed / TARGET_FRAME_NS);
+        scale = Math.min(scale, 3f); // cap to avoid huge jumps on lag spikes
+
+        float newYaw = smoothYaw(player.getYRot(), targetYaw, scale);
+        float newPitch = smoothPitch(player.getXRot(), targetPitch, scale);
+        player.setYRot(newYaw);
+        player.setYHeadRot(newYaw);
+        player.setXRot(newPitch);
+    }
+
     private static void tick(LocalPlayer player) {
         Minecraft mc = Minecraft.getInstance();
 
@@ -199,34 +223,31 @@ public class PathfinderAction {
                 && path.get(currentNode).getY() > player.getY() + 0.2;
 
         // Scan ahead and skip to the furthest node we've reached
-        // Disabled while climbing — need precise block-by-block movement
-        if (!climbing) {
-            int scanLimit = Math.min(path.size(), currentNode + 15);
-            int furthestReached = -1;
-            int baseY = path.get(currentNode).getY();
-            for (int i = currentNode; i < scanLimit; i++) {
-                BlockPos node = path.get(i);
-                // Stop scanning past Y changes — don't skip jump/fall nodes
-                if (node.getY() != baseY) break;
-                double ndx = node.getX() + 0.5 - player.getX();
-                double ndz = node.getZ() + 0.5 - player.getZ();
-                double ndy = node.getY() - player.getY();
-                if (Math.sqrt(ndx * ndx + ndz * ndz) < REACH_DISTANCE && Math.abs(ndy) < 1.5) {
-                    furthestReached = i;
-                }
-            }
-            if (furthestReached >= currentNode) {
-                currentNode = furthestReached + 1;
-            }
-        } else {
-            // When climbing, only advance when player is at or above the node
-            BlockPos node = path.get(currentNode);
+        // Works for both flat and climbing — handles speed boosts, ice, jump boost
+        int scanLimit = Math.min(path.size(), currentNode + 15);
+        int furthestReached = -1;
+        for (int i = currentNode; i < scanLimit; i++) {
+            BlockPos node = path.get(i);
             double ndx = node.getX() + 0.5 - player.getX();
             double ndz = node.getZ() + 0.5 - player.getZ();
             double ndy = node.getY() - player.getY();
-            if (Math.sqrt(ndx * ndx + ndz * ndz) < REACH_DISTANCE && ndy <= 0.5) {
-                currentNode++;
+            double horizDist = Math.sqrt(ndx * ndx + ndz * ndz);
+
+            if (climbing) {
+                // Climbing: player must be at or above the node and horizontally close
+                if (horizDist < REACH_DISTANCE && ndy <= 0.5) {
+                    furthestReached = i;
+                }
+            } else {
+                // Flat: stop scanning past Y changes to avoid skipping jump/fall nodes
+                if (node.getY() != path.get(currentNode).getY()) break;
+                if (horizDist < REACH_DISTANCE && Math.abs(ndy) < 1.5) {
+                    furthestReached = i;
+                }
             }
+        }
+        if (furthestReached >= currentNode) {
+            currentNode = furthestReached + 1;
         }
 
         if (currentNode >= path.size()) {
@@ -273,20 +294,13 @@ public class PathfinderAction {
         double dy = aimTarget.getY() - player.getY();
         double dz = aimTarget.getZ() + 0.5 - player.getZ();
 
-        // Smooth horizontal rotation
-        float targetYaw = (float) (Math.atan2(-dx, dz) * (180.0 / Math.PI));
-        float newYaw = smoothYaw(player.getYRot(), targetYaw);
-        player.setYRot(newYaw);
-        player.setYHeadRot(newYaw);
-
-        // Smooth vertical rotation
-        float targetPitch = (float) (Math.atan2(-dy, Math.sqrt(dx * dx + dz * dz)) * (180.0 / Math.PI));
-        float newPitch = smoothPitch(player.getXRot(), targetPitch);
-        player.setXRot(newPitch);
+        // Compute target angles — actual rotation is applied in renderTick()
+        targetYaw = (float) (Math.atan2(-dx, dz) * (180.0 / Math.PI));
+        targetPitch = (float) (Math.atan2(-dy, Math.sqrt(dx * dx + dz * dz)) * (180.0 / Math.PI));
 
         // Only walk forward if we're roughly facing the target direction
         // This prevents sliding along walls while rotating
-        float yawDiff = targetYaw - newYaw;
+        float yawDiff = targetYaw - player.getYRot();
         while (yawDiff > 180) yawDiff -= 360;
         while (yawDiff < -180) yawDiff += 360;
 
