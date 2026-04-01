@@ -3,6 +3,7 @@ package name.ezforaging.pathfinding;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.material.FluidState;
 import java.util.*;
 
 public class EzForagingPathfinder {
@@ -46,6 +47,8 @@ public class EzForagingPathfinder {
 
                 int yDiff = Math.abs(neighbour.getY() - current.pos.getY());
                 double moveCost = yDiff > 0 ? 1.0 + (yDiff * 0.5) : 1.0;
+                moveCost += wallProximityCost(level, neighbour);
+                moveCost += waterCost(level, neighbour);
                 double newGCost = current.gCost + moveCost;
 
                 // Skip if we already found a better or equal path to this neighbour
@@ -58,6 +61,56 @@ public class EzForagingPathfinder {
         }
         return Collections.emptyList();
     }
+    private static final int WALL_CLEARANCE = 3;
+    private static final double WALL_PENALTY = 0.5;
+    private static final int WATER_CLEARANCE = 3;
+    private static final double WATER_PROXIMITY_PENALTY = 0.8;
+    private static final double WATER_DIRECT_PENALTY = 5.0;
+
+    private static boolean isWater(Level level, BlockPos pos) {
+        FluidState fluid = level.getFluidState(pos);
+        return !fluid.isEmpty();
+    }
+
+    private static double wallProximityCost(Level level, BlockPos pos) {
+        int y = pos.getY();
+        for (int dx = -WALL_CLEARANCE; dx <= WALL_CLEARANCE; dx++) {
+            for (int dz = -WALL_CLEARANCE; dz <= WALL_CLEARANCE; dz++) {
+                if (dx == 0 && dz == 0) continue;
+                BlockPos check = new BlockPos(pos.getX() + dx, y, pos.getZ() + dz);
+                if (!level.getBlockState(check).getCollisionShape(level, check).isEmpty()) {
+                    double dist = Math.sqrt(dx * dx + dz * dz);
+                    if (dist <= WALL_CLEARANCE) {
+                        return WALL_PENALTY * (1.0 - dist / (WALL_CLEARANCE + 1));
+                    }
+                }
+            }
+        }
+        return 0.0;
+    }
+
+    private static double waterCost(Level level, BlockPos pos) {
+        // Heavy penalty for standing in water
+        if (isWater(level, pos) || isWater(level, pos.below())) {
+            return WATER_DIRECT_PENALTY;
+        }
+
+        // Proximity penalty — prefer routes away from water
+        int y = pos.getY();
+        for (int dx = -WATER_CLEARANCE; dx <= WATER_CLEARANCE; dx++) {
+            for (int dz = -WATER_CLEARANCE; dz <= WATER_CLEARANCE; dz++) {
+                if (dx == 0 && dz == 0) continue;
+                double dist = Math.sqrt(dx * dx + dz * dz);
+                if (dist > WATER_CLEARANCE) continue;
+                BlockPos check = new BlockPos(pos.getX() + dx, y, pos.getZ() + dz);
+                if (isWater(level, check)) {
+                    return WATER_PROXIMITY_PENALTY * (1.0 - dist / (WATER_CLEARANCE + 1));
+                }
+            }
+        }
+        return 0.0;
+    }
+
     private static double heuristic(BlockPos a, BlockPos b) {
         return Math.abs(a.getX()-b.getX())
               +Math.abs(a.getY()-b.getY())
