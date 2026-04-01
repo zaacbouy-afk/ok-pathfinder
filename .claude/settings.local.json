@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find C:Userszaacb.gradlecachesfabric-loom-cache -type f -name *.java)",
+      "Bash(find ~/.gradle/caches/fabric-loom -type f -name *.java)",
+      "Bash(find ~/.gradle/caches/fabric-loom -type f -name *.jar)",
+      "Bash(find ~/.gradle/caches/modules-2 -type f -name *minecraft*)",
+      "Bash(find ~/IdeaProjects/ezForaging -type f -name *.java)",
+      "Bash(find ~/IdeaProjects/ezForaging/.gradle -type f -name *.java)",
+      "Bash(find ~/IdeaProjects/ezForaging/build -type f -name *.java)",
+      "Bash(find ~/IdeaProjects/ezForaging/build -type f -name *.jar)",
+      "Bash(find ~/.gradle/caches -type f -name *sources.jar)",
+      "Bash(find ~/.gradle/caches/fabric-loom/minecraftMaven -type f -name *.jar)",
+      "Bash(xargs -I {} sh -c \"jar tf {} 2>/dev/null | grep -q \"\"LevelRenderer\"\" && echo {}\")",
+      "Bash(jar tf:*)",
+      "Bash(find ~/IdeaProjects/ezForaging/build -type d -name *minecraft*)",
+      "Bash(find ~/.gradle/caches -type d -name *decompiled*)",
+      "Bash(find ~/.config -type f -name *.java)",
+      "Bash(find ~/.gradle/caches/jars-9 -type f -name *minecraft*)",
+      "Bash(find ~/.gradle/caches -type f -name *minecraft*.jar)",
+      "Bash(for jar:*)",
+      "Bash(do echo:*)",
+      "Bash(grep \"\\\\.class$\")",
+      "Bash(JAR=C:Userszaacb.gradlecachesfabric-loomminecraftMavennetminecraftminecraft-clientonly1.21.11-loom.mappings.1_21_11.layered+hash.2198-v2minecraft-clientonly-1.21.11-loom.mappings.1_21_11.layered+hash.2198-v2.jar javap -classpath $JAR net.minecraft.client.renderer.rendertype.RenderTypes)",
+      "Bash(FABRIC_JAR=\"C:/Users/zaacb/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-api/0.141.3+1.21.11/50de67eb221f0b38216da8668b09ca311327040e/fabric-api-0.141.3+1.21.11.jar\" MC_JAR=\"C:\\\\Users\\\\zaacb\\\\.gradle\\\\caches\\\\fabric-loom\\\\minecraftMaven\\\\net\\\\minecraft\\\\minecraft-clientonly\\\\1.21.11-loom.mappings.1_21_11.layered+hash.2198-v2\\\\minecraft-clientonly-1.21.11-loom.mappings.1_21_11.layered+hash.2198-v2.jar\" __NEW_LINE_37931f9f50f9d210__ echo \"=== WorldRenderEvents in Fabric API ===\" jar tf \"$FABRIC_JAR\")",
+      "Bash(FABRIC_JAR=\"C:/Users/zaacb/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-api/0.141.3+1.21.11/50de67eb221f0b38216da8668b09ca311327040e/fabric-api-0.141.3+1.21.11.jar\" __NEW_LINE_a30db40eba2b53cf__ echo \"=== All classes in fabric-api JAR \\(rendering related\\) ===\" jar tf \"$FABRIC_JAR\")",
+      "Bash(xargs -I{} sh -c \"jar tf \"\"{}\"\" 2>/dev/null | grep -i \"\"WorldRender\"\" | head -3 | sed \"\"s|^|{}: |\"\"\")",
+      "Bash(FABRIC_RENDER_JAR=\"C:/Users/zaacb/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-rendering-v1/16.2.10+0290ad933e/2485bb9579abaada1f556258b823dd9fbb1e3b05/fabric-rendering-v1-16.2.10+0290ad933e.jar\" MC_JAR=\"C:\\\\Users\\\\zaacb\\\\.gradle\\\\caches\\\\fabric-loom\\\\minecraftMaven\\\\net\\\\minecraft\\\\minecraft-clientonly\\\\1.21.11-loom.mappings.1_21_11.layered+hash.2198-v2\\\\minecraft-clientonly-1.21.11-loom.mappings.1_21_11.layered+hash.2198-v2.jar\" __NEW_LINE_a8247457ed89d881__ echo \"=== All classes in fabric-rendering-v1 ===\" jar tf \"$FABRIC_RENDER_JAR\")",
+      "Bash(grep -v \".class$\")",
+      "Bash(grep \".class$\")",
+      "Bash(grep -v \"$\")",
+      "Read(//c/Users/zaacb/IdeaProjects/ezForaging/**)",
+      "Bash(/dev/null __NEW_LINE_a8247457ed89d881__ echo echo '=== WorldRenderEvents methods ===' javap -classpath $FABRIC_RENDER_JAR:$MC_JAR net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents)",
+      "Bash(grep -v \"^$\")",
+      "Read(//tmp/fab2 echo === AbstractWorldRenderContext === javap -p net/fabricmc/fabric/api/client/rendering/v1/world/**)",
+      "Bash(/dev/null __NEW_LINE_78b44254dab4f247__ echo '=== EndMain interface ===' javap -p net/fabricmc/fabric/api/client/rendering/v1/world/WorldRenderEvents$EndMain.class 2)",
+      "Bash(/dev/null __NEW_LINE_78b44254dab4f247__ MC_JAR=C:Userszaacb.gradlecachesfabric-loomminecraftMavennetminecraftminecraft-clientonly1.21.11-loom.mappings.1_21_11.layered+hash.2198-v2minecraft-clientonly-1.21.11-loom.mappings.1_21_11.layered+hash.2198-v2.jar echo '=== RenderTypes.LINES format ===' javap -verbose -classpath $MC_JAR net.minecraft.client.renderer.rendertype.RenderTypes)",
+      "Bash(MC_JAR=C:Userszaacb.gradlecachesfabric-loom1.21.11minecraft-client.jar jar tf $MC_JAR)",
+      "Bash(xargs grep:*)"
+    ]
+  }
+}
