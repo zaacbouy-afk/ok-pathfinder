@@ -72,6 +72,12 @@ public class EzForagingScreen extends Screen {
     }
 
     @Override
+    public void onClose() {
+        PathfinderConfig.save();
+        super.onClose();
+    }
+
+    @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float delta) {
         int paddingX = this.width / 6;
         int paddingY = this.height / 6;

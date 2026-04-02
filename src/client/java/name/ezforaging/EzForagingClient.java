@@ -12,6 +12,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.level.Level;
 import name.ezforaging.pathfinding.EzForagingPathfinder;
 import name.ezforaging.pathfinding.PathfinderAction;
+import name.ezforaging.pathfinding.PathfinderConfig;
 import name.ezforaging.pathfinding.PathRenderer;
 
 import java.util.List;
@@ -19,6 +20,7 @@ import java.util.List;
 public class EzForagingClient implements ClientModInitializer {
 	@Override
 	public void onInitializeClient() {
+		PathfinderConfig.load();
 		PathRenderer.register();
 		PathfinderAction.register();
 		ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
