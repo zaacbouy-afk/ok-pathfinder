@@ -78,20 +78,23 @@
         }
 
         private static double wallProximityCost(Level level, BlockPos pos) {
+            double highestPenalty = 0.0;
             int y = pos.getY();
             for (int dx = -WALL_CLEARANCE; dx <= WALL_CLEARANCE; dx++) {
                 for (int dz = -WALL_CLEARANCE; dz <= WALL_CLEARANCE; dz++) {
                     if (dx == 0 && dz == 0) continue;
+                    double dist = Math.sqrt(dx * dx + dz * dz);
+                    if (dist > WALL_CLEARANCE) continue;
                     BlockPos check = new BlockPos(pos.getX() + dx, y, pos.getZ() + dz);
                     if (!level.getBlockState(check).getCollisionShape(level, check).isEmpty()) {
-                        double dist = Math.sqrt(dx * dx + dz * dz);
-                        if (dist <= WALL_CLEARANCE) {
-                            return WALL_PENALTY * (1.0 - dist / (WALL_CLEARANCE + 1));
+                        double penalty = WALL_PENALTY * (1.0 - dist / (WALL_CLEARANCE + 1));
+                        if (penalty > highestPenalty) {
+                            highestPenalty = penalty;
                         }
                     }
                 }
             }
-            return 0.0;
+            return highestPenalty;
         }
 
         private static double waterCost(Level level, BlockPos pos) {
@@ -101,6 +104,7 @@
             }
 
             // Proximity penalty — prefer routes away from water
+            double highestPenalty = 0.0;
             int y = pos.getY();
             for (int dx = -WATER_CLEARANCE; dx <= WATER_CLEARANCE; dx++) {
                 for (int dz = -WATER_CLEARANCE; dz <= WATER_CLEARANCE; dz++) {
@@ -109,11 +113,14 @@
                     if (dist > WATER_CLEARANCE) continue;
                     BlockPos check = new BlockPos(pos.getX() + dx, y, pos.getZ() + dz);
                     if (isWater(level, check)) {
-                        return WATER_PROXIMITY_PENALTY * (1.0 - dist / (WATER_CLEARANCE + 1));
+                        double penalty = WATER_PROXIMITY_PENALTY * (1.0 - dist / (WATER_CLEARANCE + 1));
+                        if (penalty > highestPenalty) {
+                            highestPenalty = penalty;
+                        }
                     }
                 }
             }
-            return 0.0;
+            return highestPenalty;
         }
 
         private static final int EDGE_CLEARANCE = 3;

@@ -20,24 +20,17 @@ public class PathfinderAction {
     private static List<BlockPos> path = null;
     private static int currentNode = 0;
     public static boolean active = false;
-    private static final double REACH_DISTANCE = 1.2;
     private static final float SMOOTH_SPEED_MIN = 0.1f;
-    private static final float SMOOTH_SPEED_MAX = 0.25f;
-    private static final float MAX_YAW_PER_FRAME = 5f;
     private static final float MAX_PITCH_PER_FRAME = 3f;
+    private static final int STUCK_CHECK_INTERVAL = 10; // check every 0.5 seconds
 
     // Stuck detection & repathing
     private static BlockPos destination = null;
     private static double lastX, lastY, lastZ;
     private static int stuckTicks = 0;
-    private static final int STUCK_CHECK_INTERVAL = 10; // check every 0.5 seconds
-    private static final double STUCK_THRESHOLD = 1.0;  // must move at least 1 block per check
-    private static final int STUCK_REPATH_TICKS = 20;   // repath after ~1 second stuck
     private static int tickCounter = 0;
     private static int repathAttempts = 0;
-    private static final int MAX_REPATH_ATTEMPTS = 3;
     private static double repathOriginX, repathOriginY, repathOriginZ;
-    private static final float FORWARD_ANGLE_THRESHOLD = 50f; // don't walk forward if facing > 50° off target
     private static final Set<BlockPos> blacklist = new HashSet<>();
 
     // Target angles computed in tick(), interpolated every frame in renderTick()
@@ -69,6 +62,9 @@ public class PathfinderAction {
             lastX = player.getX();
             lastY = player.getY();
             lastZ = player.getZ();
+            repathOriginX = player.getX();
+            repathOriginY = player.getY();
+            repathOriginZ = player.getZ();
         }
     }
 
@@ -107,9 +103,9 @@ public class PathfinderAction {
         while (diff > 180) diff -= 360;
         while (diff < -180) diff += 360;
         float absDiff = Math.abs(diff);
-        float speed = SMOOTH_SPEED_MIN + (SMOOTH_SPEED_MAX - SMOOTH_SPEED_MIN) * Math.min(absDiff / 90f, 1f);
+        float speed = SMOOTH_SPEED_MIN + (PathfinderConfig.smoothSpeedMax - SMOOTH_SPEED_MIN) * Math.min(absDiff / 90f, 1f);
         float delta = diff * speed * scale;
-        float maxYaw = MAX_YAW_PER_FRAME * scale;
+        float maxYaw = PathfinderConfig.maxYawPerFrame * scale;
         delta = Math.max(-maxYaw, Math.min(maxYaw, delta));
         return current + delta;
     }
@@ -117,7 +113,7 @@ public class PathfinderAction {
     private static float smoothPitch(float current, float target, float scale) {
         float diff = target - current;
         float absDiff = Math.abs(diff);
-        float speed = SMOOTH_SPEED_MIN + (SMOOTH_SPEED_MAX - SMOOTH_SPEED_MIN) * Math.min(absDiff / 45f, 1f);
+        float speed = SMOOTH_SPEED_MIN + (PathfinderConfig.smoothSpeedMax - SMOOTH_SPEED_MIN) * Math.min(absDiff / 45f, 1f);
         float delta = diff * speed * scale;
         float maxPitch = MAX_PITCH_PER_FRAME * scale;
         delta = Math.max(-maxPitch, Math.min(maxPitch, delta));
@@ -144,7 +140,7 @@ public class PathfinderAction {
         }
 
         repathAttempts++;
-        if (repathAttempts > MAX_REPATH_ATTEMPTS) {
+        if (repathAttempts > PathfinderConfig.maxRepathAttempts) {
             stopWithReason(player, "stuck, unable to repath");
             return;
         }
@@ -170,9 +166,7 @@ public class PathfinderAction {
         );
         BlockPos playerPos = player.blockPosition();
 
-        // On the last attempt, allow a much larger search so the
-        // pathfinder can find a longer detour that actually reaches the goal.
-        int iterations = (repathAttempts == MAX_REPATH_ATTEMPTS) ? 200000 : 50000;
+        int iterations = 200000;
         List<BlockPos> newPath = EzForagingPathfinder.findPath(
                 Minecraft.getInstance().level, playerPos, destination, iterations, blacklist
         );
@@ -181,18 +175,27 @@ public class PathfinderAction {
             path = newPath;
             currentNode = 0;
             stuckTicks = 0;
+            tickCounter = 0;
             lastX = player.getX();
             lastY = player.getY();
             lastZ = player.getZ();
 
-            // Skip nodes the player is already standing on
+            // Skip nodes the player is already standing on (with forward-direction check
+            // to avoid advancing sideways into the wall we just escaped from)
+            double yawRad = Math.toRadians(player.getYRot());
+            double fwdX = -Math.sin(yawRad);
+            double fwdZ = Math.cos(yawRad);
             for (int i = 0; i < newPath.size(); i++) {
                 BlockPos node = newPath.get(i);
                 double ndx = node.getX() + 0.5 - player.getX();
                 double ndz = node.getZ() + 0.5 - player.getZ();
                 double ndy = node.getY() - player.getY();
                 double horizDist = Math.sqrt(ndx * ndx + ndz * ndz);
-                if (horizDist < REACH_DISTANCE && Math.abs(ndy) < 1.5) {
+                if (horizDist > 0.3) {
+                    double dot = (ndx / horizDist) * fwdX + (ndz / horizDist) * fwdZ;
+                    if (dot <= 0) break;
+                }
+                if (horizDist < PathfinderConfig.reachDistance && Math.abs(ndy) < 1.5) {
                     currentNode = i + 1;
                 } else {
                     break;
@@ -219,7 +222,8 @@ public class PathfinderAction {
         double z = player.getZ();
         double tx = target.getX() + 0.5;
         double tz = target.getZ() + 0.5;
-        int y = target.getY();
+        int playerY = (int) Math.floor(player.getY());
+        int targetY = target.getY();
 
         double dist = Math.sqrt((tx - x) * (tx - x) + (tz - z) * (tz - z));
         int steps = (int) Math.ceil(dist / 0.5);
@@ -229,9 +233,18 @@ public class PathfinderAction {
             double t = (double) i / steps;
             double sx = x + (tx - x) * t;
             double sz = z + (tz - z) * t;
-            BlockPos check = new BlockPos((int) Math.floor(sx), y, (int) Math.floor(sz));
-            if (!level.getBlockState(check).getCollisionShape(level, check).isEmpty()) {
+            int checkX = (int) Math.floor(sx);
+            int checkZ = (int) Math.floor(sz);
+            // Check at both the player's Y and the target's Y to catch walls at either level
+            BlockPos checkAtPlayer = new BlockPos(checkX, playerY, checkZ);
+            if (!level.getBlockState(checkAtPlayer).getCollisionShape(level, checkAtPlayer).isEmpty()) {
                 return false;
+            }
+            if (targetY != playerY) {
+                BlockPos checkAtTarget = new BlockPos(checkX, targetY, checkZ);
+                if (!level.getBlockState(checkAtTarget).getCollisionShape(level, checkAtTarget).isEmpty()) {
+                    return false;
+                }
             }
         }
         return true;
@@ -286,7 +299,7 @@ public class PathfinderAction {
             double movedZ = player.getZ() - lastZ;
             double distMoved = Math.sqrt(movedX * movedX + movedY * movedY + movedZ * movedZ);
 
-            if (distMoved < STUCK_THRESHOLD) {
+            if (distMoved < PathfinderConfig.stuckThreshold) {
                 stuckTicks += STUCK_CHECK_INTERVAL;
             } else {
                 stuckTicks = 0;
@@ -296,7 +309,7 @@ public class PathfinderAction {
             lastY = player.getY();
             lastZ = player.getZ();
 
-            if (stuckTicks >= STUCK_REPATH_TICKS) {
+            if (stuckTicks >= PathfinderConfig.stuckRepathTicks) {
                 stuckTicks = 0;
                 repath(player);
                 return;
@@ -326,20 +339,31 @@ public class PathfinderAction {
             // Don't count a node as reached if there's a wall between us and it
             if (!hasLineOfSight(player, node)) continue;
 
+            // Don't count a node as reached if it's to the side or behind the player —
+            // prevents wall-sliding from accidentally advancing currentNode sideways.
+            // Skip this check when very close (player is basically on the node) or airborne.
+            if (!airborne && horizDist > 0.3) {
+                double yawRad = Math.toRadians(player.getYRot());
+                double fwdX = -Math.sin(yawRad);
+                double fwdZ = Math.cos(yawRad);
+                double dot = (ndx / horizDist) * fwdX + (ndz / horizDist) * fwdZ;
+                if (dot <= 0) continue;
+            }
+
             if (airborne) {
                 // Airborne: permissive scan — skip any node the player is above/at and near
-                if (horizDist < REACH_DISTANCE && ndy <= 1.0) {
+                if (horizDist < PathfinderConfig.reachDistance && ndy <= 1.0) {
                     furthestReached = i;
                 }
             } else if (climbing) {
                 // Climbing: player must be at or above the node and horizontally close
-                if (horizDist < REACH_DISTANCE && ndy <= 0.5) {
+                if (horizDist < PathfinderConfig.reachDistance && ndy <= 0.5) {
                     furthestReached = i;
                 }
             } else {
                 // Flat: stop scanning past Y changes to avoid skipping jump/fall nodes
                 if (node.getY() != path.get(currentNode).getY()) break;
-                if (horizDist < REACH_DISTANCE && Math.abs(ndy) < 1.5) {
+                if (horizDist < PathfinderConfig.reachDistance && Math.abs(ndy) < 1.5) {
                     furthestReached = i;
                 }
             }
@@ -349,17 +373,29 @@ public class PathfinderAction {
         }
 
         // Skip nodes that are behind the player — if the next node is closer, we've passed the current one
-        // Only skip if we have line of sight to the next node (don't skip through walls)
-        while (currentNode + 1 < path.size() && currentNode+1 != path.size()-1) {
-            BlockPos curr = path.get(currentNode);
-            BlockPos next = path.get(currentNode + 1);
-            if (!hasLineOfSight(player, next)) break;
-            double distCurr = player.distanceToSqr(curr.getX() + 0.5, curr.getY(), curr.getZ() + 0.5);
-            double distNext = player.distanceToSqr(next.getX() + 0.5, next.getY(), next.getZ() + 0.5);
-            if (distNext < distCurr) {
-                currentNode++;
-            } else {
-                break;
+        // Only skip if we have line of sight and the next node is in front of the player
+        if (!airborne) {
+            double skipYawRad = Math.toRadians(player.getYRot());
+            double skipFwdX = -Math.sin(skipYawRad);
+            double skipFwdZ = Math.cos(skipYawRad);
+            while (currentNode + 1 < path.size() && currentNode + 1 != path.size() - 1) {
+                BlockPos next = path.get(currentNode + 1);
+                if (!hasLineOfSight(player, next)) break;
+                double nxd = next.getX() + 0.5 - player.getX();
+                double nzd = next.getZ() + 0.5 - player.getZ();
+                double nDist = Math.sqrt(nxd * nxd + nzd * nzd);
+                if (nDist > 0.3) {
+                    double dot = (nxd / nDist) * skipFwdX + (nzd / nDist) * skipFwdZ;
+                    if (dot <= 0) break;
+                }
+                BlockPos curr = path.get(currentNode);
+                double distCurr = player.distanceToSqr(curr.getX() + 0.5, curr.getY(), curr.getZ() + 0.5);
+                double distNext = player.distanceToSqr(next.getX() + 0.5, next.getY(), next.getZ() + 0.5);
+                if (distNext < distCurr) {
+                    currentNode++;
+                } else {
+                    break;
+                }
             }
         }
 
@@ -394,14 +430,14 @@ public class PathfinderAction {
             // Check the path doesn't reverse direction (sign of going around a wall)
             BlockPos prev = path.get(i - 1);
             BlockPos curr = path.get(i);
-            if (i >= 2) {
+            if (i >= currentNode + 2) {
                 BlockPos beforePrev = path.get(i - 2);
                 int prevDirX = prev.getX() - beforePrev.getX();
                 int prevDirZ = prev.getZ() - beforePrev.getZ();
                 int currDirX = curr.getX() - prev.getX();
                 int currDirZ = curr.getZ() - prev.getZ();
-                // Dot product < 0 means direction reversed (U-turn around obstacle)
-                if (prevDirX * currDirX + prevDirZ * currDirZ < 0) break;
+                // Dot product <= 0 means 90° turn or reversal (going around a wall corner)
+                if (prevDirX * currDirX + prevDirZ * currDirZ <= 0) break;
             }
 
             // Check line of sight — don't aim through walls
@@ -431,7 +467,7 @@ public class PathfinderAction {
         while (yawDiff > 180) yawDiff -= 360;
         while (yawDiff < -180) yawDiff += 360;
 
-        if (Math.abs(yawDiff) < FORWARD_ANGLE_THRESHOLD) {
+        if (Math.abs(yawDiff) < PathfinderConfig.forwardAngleThreshold) {
             // Walk forward
             mc.options.keyUp.setDown(true);
 
@@ -468,10 +504,7 @@ public class PathfinderAction {
                 }
             }
 
-            // Sprint on flat stretches with room ahead
-            if (aimNode > currentNode + 2) {
-                mc.options.keySprint.setDown(true);
-            }
+            mc.options.keySprint.setDown(true);
         }
     }
 }
