@@ -216,7 +216,9 @@ public class EzForagingPathfinder {
 
                 // Calculate movement cost with avoidance penalties
                 int yDiff = Math.abs(neighbour.getY() - current.pos.getY());
-                double moveCost = yDiff > 0 ? 1.0 + (yDiff * 0.5) : 1.0;
+                // 1-block step-up/step-down is free — same cost as flat movement.
+                // Only penalise drops of 2+ blocks (risky falls).
+                double moveCost = yDiff > 1 ? 1.0 + ((yDiff - 1) * 0.5) : 1.0;
                 moveCost += wallProximityCost(level, neighbour);
                 moveCost += localHazardCost(level, neighbour);
                 moveCost += waterCost(level, neighbour);
@@ -246,8 +248,8 @@ public class EzForagingPathfinder {
     // Each cost function scans a radius around the candidate position and
     // returns the HIGHEST single penalty found (closest hazard wins).
 
-    private static final int WALL_CLEARANCE = 2;
-    private static final double WALL_PENALTY = 0.4;
+    private static final int WALL_CLEARANCE = 4;
+    private static final double WALL_PENALTY = 1.0;
     private static final double LOCAL_HAZARD_PENALTY = 3.5;
     private static final double CRAMPED_PENALTY = 0.25;
 
@@ -338,8 +340,8 @@ public class EzForagingPathfinder {
         return highestPenalty;
     }
 
-    private static final int EDGE_CLEARANCE = 3;
-    private static final double EDGE_PENALTY = 8.0;
+    private static final int EDGE_CLEARANCE = 6;
+    private static final double EDGE_PENALTY = 28.0;
     private static final int DROP_THRESHOLD = 2; // 2+ block drop = dangerous edge
 
     /** Penalises positions near steep drop-offs to keep paths away from cliffs. */
