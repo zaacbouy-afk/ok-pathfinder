@@ -191,6 +191,11 @@ public class EzForagingPathfinder {
         openSet.add(new Node(start, null, 0, heuristic(start, end), 0, 0));
         bestGCost.put(start, 0.0);
 
+        // Clamp drop generation to within 5 blocks below the lower of start/end.
+        // This prevents the pathfinder from routing under floating islands when
+        // the surface path is blocked.
+        int minY = Math.min(start.getY(), end.getY()) - 5;
+
         int iterations = 0;
         while (!openSet.isEmpty() && iterations < maxIterations) {
             iterations++;
@@ -207,7 +212,7 @@ public class EzForagingPathfinder {
             closedSet.add(current.pos);
 
             // Expand neighbours
-            for (BlockPos neighbour : getNeighbours(current.pos, level)) {
+            for (BlockPos neighbour : getNeighbours(current.pos, level, minY)) {
                 if (closedSet.contains(neighbour)) continue;
                 if (!isWalkable(level, current.pos, neighbour)) continue;
 
@@ -437,7 +442,7 @@ public class EzForagingPathfinder {
      * - 4 cardinal step-ups (1 block higher)
      * - 4 cardinal drops (scan down up to 7 blocks to find a landing)
      */
-    private static List<BlockPos> getNeighbours(BlockPos pos, Level level) {
+    private static List<BlockPos> getNeighbours(BlockPos pos, Level level, int minY) {
         List<BlockPos> neighbors = new ArrayList<>();
         BlockPos[] horizontal = { pos.north(), pos.south(), pos.east(), pos.west() };
 
@@ -451,12 +456,13 @@ public class EzForagingPathfinder {
             if (level.isLoaded(h)) neighbors.add(h.above());
         }
 
-        // Drop down — scan up to 7 blocks for a landing
+        // Drop down — scan up to 7 blocks for a landing, but never below minY
         for (BlockPos h : horizontal) {
             if (!level.isLoaded(h)) continue;
             BlockPos landing = h;
             for (int drop = 1; drop <= 7; drop++) {
                 landing = landing.below();
+                if (landing.getY() < minY) break;
                 if ((lookup(level, landing.below()) & BIT_SOLID) != 0) {
                     neighbors.add(landing);
                     break;

@@ -75,10 +75,10 @@ public class EzForagingClient implements ClientModInitializer {
 
                     Level level = Minecraft.getInstance().level;
                     BlockPos playerPos = EzForagingPathfinder.getStartPos(level, Minecraft.getInstance().player.blockPosition());
-                    BlockPos target = new BlockPos(x, y, z);
+                    BlockPos target = EzForagingPathfinder.getStartPos(level, new BlockPos(x, y, z));
 
                     Minecraft.getInstance().player.displayClientMessage(
-                        prefix().append(Component.literal("Computing path to " + x + " " + y + " " + z + "...")), false
+                        prefix().append(Component.literal("Computing path to " + target.getX() + " " + target.getY() + " " + target.getZ() + "...")), false
                     );
 
                     List<BlockPos> path = EzForagingPathfinder.findPath(level, playerPos, target, 500000);
@@ -112,7 +112,7 @@ public class EzForagingClient implements ClientModInitializer {
 
                     Level level = Minecraft.getInstance().level;
                     BlockPos playerPos = EzForagingPathfinder.getStartPos(level, Minecraft.getInstance().player.blockPosition());
-                    BlockPos target = new BlockPos(x, y, z);
+                    BlockPos target = EzForagingPathfinder.getStartPos(level, new BlockPos(x, y, z));
 
                     List<BlockPos> path = EzForagingPathfinder.findPath(level, playerPos, target, 500000);
 
