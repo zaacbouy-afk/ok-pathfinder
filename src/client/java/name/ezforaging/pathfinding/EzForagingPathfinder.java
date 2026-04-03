@@ -52,11 +52,12 @@ public class EzForagingPathfinder {
     private static ResourceKey<Level> cachedDimension = null;
 
     // ── Last-search diagnostics (read by call sites for debug output) ───
-    public static long lastSearchMs      = 0; // total findPath duration
-    public static int  lastIterations    = 0; // A* iterations used
-    public static int  lastPathNodes     = 0; // nodes in returned path
-    public static int  lastCacheAdded    = 0; // new blocks cached this search
-    public static int  lastCacheTotal    = 0; // total cached blocks after search
+    public static long   lastSearchMs      = 0;  // total findPath duration
+    public static int    lastIterations    = 0;  // A* iterations used
+    public static int    lastPathNodes     = 0;  // nodes in returned path
+    public static int    lastCacheAdded    = 0;  // new blocks cached this search
+    public static int    lastCacheTotal    = 0;  // total cached blocks after search
+    public static String lastFailureReason = ""; // set when findPath returns empty
 
     private static void recordDiagnostics(long startNs, int cacheAtStart, int iters, int nodes) {
         lastSearchMs   = (System.nanoTime() - startNs) / 1_000_000L;
@@ -64,6 +65,53 @@ public class EzForagingPathfinder {
         lastPathNodes  = nodes;
         lastCacheAdded = blockCache.size() - cacheAtStart;
         lastCacheTotal = blockCache.size();
+    }
+
+    /** Produces a human-readable reason for why a path to 'end' could not be found. */
+    private static String diagnoseFailure(Level level, BlockPos start, BlockPos end, int iterations, int maxIterations) {
+        if (iterations >= maxIterations) {
+            return "iteration budget exhausted (" + maxIterations + ") — destination too far or terrain too complex";
+        }
+        if (!level.isLoaded(end)) {
+            return "destination chunk not loaded";
+        }
+        if (!isPassable(level, end)) {
+            return "destination is blocked — solid block at standing position";
+        }
+        if (!isPassable(level, end.above())) {
+            return "destination has no headroom — solid block above";
+        }
+        if (!isStandable(level, end.below())) {
+            return "destination has no solid ground";
+        }
+        if (!isPassable(level, start)) {
+            return "start position is blocked — player may be inside a block";
+        }
+        if (!isStandable(level, start.below())) {
+            return "start position has no solid ground";
+        }
+        // Count how many sides of the destination drop off — narrow ledge or isolated block
+        int destDropSides = 0;
+        for (BlockPos adj : new BlockPos[]{ end.north(), end.south(), end.east(), end.west() }) {
+            if (isDropOff(level, adj)) destDropSides++;
+        }
+        if (destDropSides >= 3) {
+            return "destination is too exposed — 3+ sides drop off with no safe approach";
+        }
+        return "no valid path exists — destination may be surrounded by walls, water, or impassable terrain";
+    }
+
+    /**
+     * Returns the corrected path start position for a player.
+     * When standing on a half-block (slab, etc.) player.blockPosition() lands inside
+     * the block rather than the air above it — adjust up by one in that case.
+     */
+    public static BlockPos getStartPos(Level level, BlockPos playerBlock) {
+        checkDimension(level);
+        if (!isPassable(level, playerBlock)) {
+            return playerBlock.above();
+        }
+        return playerBlock;
     }
 
     /** Clears the block cache — call when you know blocks have changed. */
@@ -150,6 +198,7 @@ public class EzForagingPathfinder {
 
             // Goal reached — reconstruct and return the path
             if (current.pos.equals(end)) {
+                lastFailureReason = "";
                 List<BlockPos> result = reconstructPath(current);
                 recordDiagnostics(searchStart, cacheAtStart, iterations, result.size());
                 return result;
@@ -189,15 +238,16 @@ public class EzForagingPathfinder {
         }
 
         recordDiagnostics(searchStart, cacheAtStart, iterations, 0);
-        return Collections.emptyList(); // no path found within iteration budget
+        lastFailureReason = diagnoseFailure(level, start, end, iterations, maxIterations);
+        return Collections.emptyList();
     }
 
     // ── Avoidance costs ────────────────────────────────────────────────
     // Each cost function scans a radius around the candidate position and
     // returns the HIGHEST single penalty found (closest hazard wins).
 
-    private static final int WALL_CLEARANCE = 4;
-    private static final double WALL_PENALTY = 1.0;
+    private static final int WALL_CLEARANCE = 2;
+    private static final double WALL_PENALTY = 0.4;
     private static final double LOCAL_HAZARD_PENALTY = 3.5;
     private static final double CRAMPED_PENALTY = 0.25;
 
@@ -288,8 +338,8 @@ public class EzForagingPathfinder {
         return highestPenalty;
     }
 
-    private static final int EDGE_CLEARANCE = 6;
-    private static final double EDGE_PENALTY = 28.0;
+    private static final int EDGE_CLEARANCE = 3;
+    private static final double EDGE_PENALTY = 8.0;
     private static final int DROP_THRESHOLD = 2; // 2+ block drop = dangerous edge
 
     /** Penalises positions near steep drop-offs to keep paths away from cliffs. */
@@ -448,12 +498,10 @@ public class EzForagingPathfinder {
             if (!isPassable(level, to.above().above())) return false;
         }
 
-        // Block corner nodes (drops on both axes) but allow bridge centerlines.
-        // N+S drops = bridge running E–W; E+W drops = bridge running N–S — both fine.
-        // Drops on both axes simultaneously = exposed corner — block those.
-        boolean nsAxisDrop = isDropOff(level, to.north()) || isDropOff(level, to.south());
-        boolean ewAxisDrop = isDropOff(level, to.east())  || isDropOff(level, to.west());
-        if (nsAxisDrop && ewAxisDrop) return false;
+        // Block truly isolated single blocks where all 4 horizontal neighbours are drop-offs.
+        // Using OR would wrongly block platform corners on sparse/SkyBlock terrain.
+        if (isDropOff(level, to.north()) && isDropOff(level, to.south())
+                && isDropOff(level, to.east()) && isDropOff(level, to.west())) return false;
 
         return true;
     }

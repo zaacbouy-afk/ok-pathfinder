@@ -220,8 +220,10 @@ public class PathfinderAction {
 
         // Last attempt gets 4x more iterations to find longer detours
         int iterations = (repathAttempts == PathfinderConfig.maxRepathAttempts) ? 200000 : 50000;
+        Level repathLevel = Minecraft.getInstance().level;
+        BlockPos repathStart = EzForagingPathfinder.getStartPos(repathLevel, player.blockPosition());
         List<BlockPos> newPath = EzForagingPathfinder.findPath(
-                Minecraft.getInstance().level, player.blockPosition(), destination, iterations, blacklist
+                repathLevel, repathStart, destination, iterations, blacklist
         );
 
         sendMessage(player, "Pathfinder: " + EzForagingPathfinder.lastSearchMs + "ms"
@@ -486,28 +488,42 @@ public class PathfinderAction {
         // ── Compute target rotation ────────────────────────────────────
         BlockPos aimTarget = path.get(aimNode);
 
-        // Weighted average of nodes currentNode..aimNode (farther = higher weight).
-        // This smooths zig-zag oscillation where aimNode flips ±1 each tick and
-        // snaps the yaw between two nearby-but-different directions.
-        double aimX = aimTarget.getX() + 0.5;
-        double aimZ = aimTarget.getZ() + 0.5;
-
-        double dx = aimX - player.getX();
+        double dx = aimTarget.getX() + 0.5 - player.getX();
         double dy = aimTarget.getY() - player.getY();
-        double dz = aimZ - player.getZ();
+        double dz = aimTarget.getZ() + 0.5 - player.getZ();
 
-        // EMA blend targetYaw toward the ideal direction each tick.
-        // Blend speed scales with error: fast for big turns, gentle for small drifts.
-        // This gives the camera a sense of continuous direction rather than snapping to nodes.
+        // Detect a direction change in the lookahead window.
+        // On straight segments the player holds their committed heading — no camera drift.
+        // Rotation only fires when the path actually turns, or when we're >15° off-course
+        // (handles path start and large corrections after repathing).
+        boolean turnInWindow = false;
+        for (int i = Math.max(1, currentNode); i <= Math.min(aimNode + 1, path.size() - 2); i++) {
+            BlockPos prev = path.get(i - 1);
+            BlockPos curr = path.get(i);
+            BlockPos next = path.get(i + 1);
+            if (curr.getY() != prev.getY() || curr.getY() != next.getY()) {
+                turnInWindow = true;
+                break;
+            }
+            if (Integer.signum(curr.getX() - prev.getX()) != Integer.signum(next.getX() - curr.getX())
+             || Integer.signum(curr.getZ() - prev.getZ()) != Integer.signum(next.getZ() - curr.getZ())) {
+                turnInWindow = true;
+                break;
+            }
+        }
+
         float newYaw = (float) (Math.atan2(-dx, dz) * (180.0 / Math.PI));
         float yawChange = newYaw - targetYaw;
         while (yawChange > 180) yawChange -= 360;
         while (yawChange < -180) yawChange += 360;
-        float yawMin = PathfinderConfig.yawBlendSpeed * 0.15f;
-        float yawBlend = Math.min(Math.abs(yawChange) / 60f, 1f) * (PathfinderConfig.yawBlendSpeed - yawMin) + yawMin;
-        targetYaw += yawChange * yawBlend;
-        while (targetYaw > 180) targetYaw -= 360;
-        while (targetYaw < -180) targetYaw += 360;
+
+        if ((turnInWindow || Math.abs(yawChange) >= 15.0f) && Math.abs(yawChange) >= 2.0f) {
+            float yawMin = PathfinderConfig.yawBlendSpeed * 0.15f;
+            float yawBlend = Math.min(Math.abs(yawChange) / 60f, 1f) * (PathfinderConfig.yawBlendSpeed - yawMin) + yawMin;
+            targetYaw += yawChange * yawBlend;
+            while (targetYaw > 180) targetYaw -= 360;
+            while (targetYaw < -180) targetYaw += 360;
+        }
 
         // Smoothly blend pitch toward the natural look-at angle each tick via EMA.
         // Ground: pitch scales proportionally to slope — gentle steps get low pitch,

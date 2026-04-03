@@ -18,6 +18,7 @@ import name.ezforaging.pathfinding.PathfinderConfig;
 import name.ezforaging.pathfinding.PathRenderer;
 
 import java.util.List;
+import java.util.ArrayList;
 
 /**
  * Mod entry point — runs once when the client initialises.
@@ -27,6 +28,10 @@ import java.util.List;
  *   - Registering all /ezforaging client commands
  */
 public class EzForagingClient implements ClientModInitializer {
+
+    // Cached path — stored by the `cache` command, reused by `start` if destination matches
+    private static BlockPos cachedDestination = null;
+    private static List<BlockPos> cachedPath = new ArrayList<>();
 
     @Override
     public void onInitializeClient() {
@@ -59,6 +64,43 @@ public class EzForagingClient implements ClientModInitializer {
                 return Command.SINGLE_SUCCESS;
             })
 
+            .then(ClientCommandManager.literal("cache")
+                .then(ClientCommandManager.argument("x", IntegerArgumentType.integer())
+                .then(ClientCommandManager.argument("y", IntegerArgumentType.integer())
+                .then(ClientCommandManager.argument("z", IntegerArgumentType.integer())
+                .executes(context -> {
+                    int x = IntegerArgumentType.getInteger(context, "x");
+                    int y = IntegerArgumentType.getInteger(context, "y");
+                    int z = IntegerArgumentType.getInteger(context, "z");
+
+                    Level level = Minecraft.getInstance().level;
+                    BlockPos playerPos = EzForagingPathfinder.getStartPos(level, Minecraft.getInstance().player.blockPosition());
+                    BlockPos target = new BlockPos(x, y, z);
+
+                    Minecraft.getInstance().player.displayClientMessage(
+                        prefix().append(Component.literal("Computing path to " + x + " " + y + " " + z + "...")), false
+                    );
+
+                    List<BlockPos> path = EzForagingPathfinder.findPath(level, playerPos, target, 500000);
+
+                    if (path.isEmpty()) {
+                        Minecraft.getInstance().player.displayClientMessage(
+                            prefix().append(Component.literal("No path found — nothing cached")), false
+                        );
+                    } else {
+                        EzForagingPathfinder.prewarmCache(level, path);
+                        cachedDestination = target;
+                        cachedPath = path;
+                        PathRenderer.setPath(path);
+                        Minecraft.getInstance().player.displayClientMessage(
+                            prefix().append(Component.literal("Cached " + path.size() + " nodes → "
+                                + x + " " + y + " " + z)), false
+                        );
+                    }
+                    return Command.SINGLE_SUCCESS;
+                }))))
+            )
+
             .then(ClientCommandManager.literal("start")
                 .then(ClientCommandManager.argument("x", IntegerArgumentType.integer())
                 .then(ClientCommandManager.argument("y", IntegerArgumentType.integer())
@@ -69,30 +111,23 @@ public class EzForagingClient implements ClientModInitializer {
                     int z = IntegerArgumentType.getInteger(context, "z");
 
                     Level level = Minecraft.getInstance().level;
-                    BlockPos playerPos = Minecraft.getInstance().player.blockPosition();
+                    BlockPos playerPos = EzForagingPathfinder.getStartPos(level, Minecraft.getInstance().player.blockPosition());
                     BlockPos target = new BlockPos(x, y, z);
 
                     List<BlockPos> path = EzForagingPathfinder.findPath(level, playerPos, target, 500000);
 
                     if (path.isEmpty()) {
                         Minecraft.getInstance().player.displayClientMessage(
-                            prefix().append(Component.literal("cached route= false")), false
-                        );
-                        Minecraft.getInstance().player.displayClientMessage(
-                            prefix().append(Component.literal("No path found")), false
+                            prefix().append(Component.literal("No path found — " + EzForagingPathfinder.lastFailureReason)), false
                         );
                     } else {
-                        Minecraft.getInstance().player.displayClientMessage(
-                            prefix().append(Component.literal("caching...")), false
-                        );
                         EzForagingPathfinder.prewarmCache(level, path);
-                        Minecraft.getInstance().player.displayClientMessage(
-                            prefix().append(Component.literal("cached route= true")), false
-                        );
+                        cachedDestination = target;
+                        cachedPath = path;
                         PathRenderer.setPath(path);
                         PathfinderAction.start(path);
                         Minecraft.getInstance().player.displayClientMessage(
-                            prefix().append(Component.literal("Following path — " + path.size() + " blocks")), false
+                            prefix().append(Component.literal("Following path — " + path.size() + " nodes")), false
                         );
                     }
                     return Command.SINGLE_SUCCESS;
