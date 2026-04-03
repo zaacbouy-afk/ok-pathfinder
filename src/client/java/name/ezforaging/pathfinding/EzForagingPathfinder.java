@@ -340,7 +340,7 @@ public class EzForagingPathfinder {
         return highestPenalty;
     }
 
-    private static final int EDGE_CLEARANCE = 6;
+    private static final int EDGE_CLEARANCE = 2;
     private static final double EDGE_PENALTY = 28.0;
     private static final int DROP_THRESHOLD = 2; // 2+ block drop = dangerous edge
 
