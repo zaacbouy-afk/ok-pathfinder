@@ -7,3 +7,6 @@ https://medal.tv/games/minecraft/clips/mqM9EqG7Ogc21CVg1?invite=cr-MSxxNWgsNTUwN
 
 feel free to do whatever you want with this, i have moved on. Good life, love you all, God bless
 good bye.
+
+
+ALSO ITS NOT KOTLIN AT ALL IDK WHY ITS LARPING
